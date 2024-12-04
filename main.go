@@ -21,6 +21,9 @@ type ScoreData struct {
 	Course string
 }
 
+/*
+Function to display main menu all user responses once complete will return here.
+*/
 func main() {
 	player := Player{}
 
@@ -47,14 +50,12 @@ func main() {
 			saveData(&player)
 
 		case "2":
-			scores := loadData(&player)
-			player.Scores = append(player.Scores, scores...)
+			loadData(&player)
 			handicap := calculateHandicap(player.Scores)
-			fmt.Println("Your handicap score is: ", handicap)
+			fmt.Println("Your average golf score is:", handicap)
 
 		case "3":
-			scores := loadData(&player)
-			player.Scores = append(player.Scores, scores...)
+			loadData(&player)
 			displayScores(&player)
 
 		case "Q", "q":
@@ -62,10 +63,12 @@ func main() {
 			fmt.Println("Exiting... Data saved.")
 			return
 		}
-
 	}
 }
 
+/*
+Simple function to display in the terminal all of the players scores.
+*/
 func displayScores(player *Player) {
 	fmt.Printf("\nScore data for %s \n", player.Name)
 	for i, score := range player.Scores {
@@ -73,6 +76,10 @@ func displayScores(player *Player) {
 	}
 }
 
+/*
+Simple mathematics function to calculate the average score of all your golf games.
+will only work if there are at min of three scores. The avg is calculated from the players top 3 scores.
+*/
 func calculateHandicap(scoreData []ScoreData) float64 {
 	//sort the top 3 scores
 	sort.Slice(scoreData, func(i, j int) bool {
@@ -87,6 +94,11 @@ func calculateHandicap(scoreData []ScoreData) float64 {
 	return handicap
 }
 
+/*
+User input function to get the data from the user via the terminal,
+The data is validated and sent to the savedata method after this function is
+called.
+*/
 func getScoreInput() ScoreData {
 	var scoreData ScoreData
 
@@ -109,6 +121,10 @@ func getScoreInput() ScoreData {
 	return scoreData
 }
 
+/*
+To keep dates proper this function will validate
+using regular expression the date that the user enters.
+*/
 func getValidDateInput(reader *bufio.Reader) string {
 	var date string
 	datePattern := `^\d{4}-\d{2}-\d{2}$`
@@ -129,12 +145,18 @@ func getValidDateInput(reader *bufio.Reader) string {
 	return date
 }
 
-func loadData(player *Player) []ScoreData {
+/*
+The purpose of this function is to identify if the player-name.csv already exists
+if the csv exists the function will attempt to read the file. It will update the player
+struct with the current values of the csv.
+*/
+func loadData(player *Player) {
 	filename := player.Name + ".csv"
 	file, err := os.Open(filename)
 	if err != nil {
 		fmt.Println("No file found at this time.")
-		return nil
+		player.Scores = nil
+		return
 	}
 	defer file.Close()
 
@@ -142,12 +164,13 @@ func loadData(player *Player) []ScoreData {
 	records, err := reader.ReadAll()
 	if err != nil {
 		fmt.Println("Error reading the CSV file:", err)
-		return nil
+		player.Scores = nil
+		return
 	}
 
 	var loadedScores []ScoreData
+	//ignoring headers
 	for i, record := range records {
-		//skiping the header
 		if i == 0 {
 			continue
 		}
@@ -162,18 +185,48 @@ func loadData(player *Player) []ScoreData {
 		}
 		scoreData := ScoreData{
 			Score:  score,
-			Course: record[1],
-			Date:   record[2],
+			Course: strings.TrimSpace(record[1]),
+			Date:   strings.TrimSpace(record[2]),
 		}
 		loadedScores = append(loadedScores, scoreData)
 	}
 
+	player.Scores = loadedScores
 	fmt.Println("Data loaded successfully.")
-	return loadedScores
 }
 
+/*
+This function aims to save the players data
+first the function will check to see if the players-name.csv exist
+if it does not exist the function will create the file.
+once the file is created it will create the headers for the data.
+if a file already exists it will not save the headers.
+Then the func will save the players data into the csv. and return to the main menu.
+*/
 func saveData(player *Player) {
-	file, err := os.OpenFile(player.Name+".csv", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	filename := player.Name + ".csv"
+	// check existing scores
+	existingScores := map[string]bool{}
+
+	file, err := os.Open(filename)
+	if err == nil {
+		defer file.Close()
+		reader := csv.NewReader(file)
+		records, err := reader.ReadAll()
+		if err == nil {
+			//skip the header
+			for _, record := range records[1:] {
+				if len(record) < 3 {
+					continue
+				}
+				key := record[0] + record[1] + record[2]
+				existingScores[key] = true
+			}
+		}
+	}
+
+	// Open the file for appending new scores
+	file, err = os.OpenFile(filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		fmt.Println("Error opening file:", err)
 		return
@@ -183,6 +236,7 @@ func saveData(player *Player) {
 	writer := csv.NewWriter(file)
 	defer writer.Flush()
 
+	// create headers for new files.
 	fileInfo, err := file.Stat()
 	if err != nil {
 		fmt.Println("Error getting file info:", err)
@@ -196,17 +250,21 @@ func saveData(player *Player) {
 		}
 	}
 
+	// Write only new scores
 	for _, score := range player.Scores {
 		record := []string{
 			strconv.Itoa(score.Score),
-			score.Course,
-			score.Date,
+			strings.TrimSpace(score.Course),
+			strings.TrimSpace(score.Date),
 		}
-		if err := writer.Write(record); err != nil {
-			fmt.Println("Error writing record to CSV:", err)
-			return
+		key := record[0] + record[1] + record[2]
+		if !existingScores[key] {
+			if err := writer.Write(record); err != nil {
+				fmt.Println("Error writing record to CSV:", err)
+				return
+			}
+			existingScores[key] = true
 		}
 	}
-
-	fmt.Println("Scores appended to file titled " + player.Name + ".csv in this directory!")
+	fmt.Println("Scores saved to file titled " + player.Name + ".csv in this directory!")
 }
